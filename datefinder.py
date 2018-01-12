@@ -145,6 +145,9 @@ class DateFinder(object):
 
     def find_dates(self, text, source=False, index=False, strict=False):
 
+        # Append text with a delimiter to make inputs consisting of solely a date work
+        text = text + ' '
+
         for date_string, indices, captures in self.extract_date_strings(text, strict=strict):
 
             as_dt = self.parse_date_string(date_string, captures)
