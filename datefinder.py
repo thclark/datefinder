@@ -152,8 +152,8 @@ class DateFinder(object):
 
             as_dt = self.parse_date_string(date_string, captures)
             if as_dt is None:
-                ## Dateutil couldn't make heads or tails of it
-                ## move on to next
+                # Dateutil couldn't make heads or tails of it
+                # move on to next
                 continue
 
             returnables = (as_dt,)
