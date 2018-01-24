@@ -21,9 +21,10 @@ class DateFinder(object):
     NA_TIMEZONES_PATTERN = 'pacific|eastern|mountain|central'
     ALL_TIMEZONES_PATTERN = TIMEZONES_PATTERN + '|' + NA_TIMEZONES_PATTERN
     DELIMITERS_PATTERN = '[/\:\-\,\s\_\+\@]+'
+
     TIME_PERIOD_PATTERN = 'a\.m\.|am|p\.m\.|pm'
     ## can be in date strings but not recognized by dateutils
-    EXTRA_TOKENS_PATTERN = 'due|by|on|standard|daylight|savings|time|date|of|to|until|z|at|t'
+    EXTRA_TOKENS_PATTERN = '\sdue\s|\sby\s|\son\s|standard|daylight|savings|time|date|\sof\s|\sto\s|until|z|at|t'
 
     # Allows for straightforward datestamps e.g 2017, 201712, 20171223. Created with:
     #  YYYYMM_PATTERN = '|'.join(['19\d\d'+'{:0>2}'.format(mon)+'|20\d\d'+'{:0>2}'.format(mon) for mon in range(1, 13)])
@@ -31,6 +32,8 @@ class DateFinder(object):
     YYYY_PATTERN = '19\d\d|20\d\d'
     YYYYMM_PATTERN = '19\d\d01|20\d\d01|19\d\d02|20\d\d02|19\d\d03|20\d\d03|19\d\d04|20\d\d04|19\d\d05|20\d\d05|19\d\d06|20\d\d06|19\d\d07|20\d\d07|19\d\d08|20\d\d08|19\d\d09|20\d\d09|19\d\d10|20\d\d10|19\d\d11|20\d\d11|19\d\d12|20\d\d12'
     YYYYMMDD_PATTERN = '19\d\d01[0123]\d|20\d\d01[0123]\d|19\d\d02[0123]\d|20\d\d02[0123]\d|19\d\d03[0123]\d|20\d\d03[0123]\d|19\d\d04[0123]\d|20\d\d04[0123]\d|19\d\d05[0123]\d|20\d\d05[0123]\d|19\d\d06[0123]\d|20\d\d06[0123]\d|19\d\d07[0123]\d|20\d\d07[0123]\d|19\d\d08[0123]\d|20\d\d08[0123]\d|19\d\d09[0123]\d|20\d\d09[0123]\d|19\d\d10[0123]\d|20\d\d10[0123]\d|19\d\d11[0123]\d|20\d\d11[0123]\d|19\d\d12[0123]\d|20\d\d12[0123]\d'
+    # YYYYMMDDHHMMSS_PATTERN = ''
+    # '|'.join(['19\d\d' + '{:0>2}'.format(mon) + '[0-3]\d[0-5]\d[0-5]\d[0-5]\d|20\d\d' + '{:0>2}'.format(mon) + '[0-3]\d[0-5]\d[0-5]\d[0-5]\d' for mon in range(1, 13)])
     UNDELIMITED_STAMPS_PATTERN = '|'.join([YYYYMMDD_PATTERN, YYYYMM_PATTERN])
 
     ## TODO: Get english numbers?
@@ -79,6 +82,9 @@ class DateFinder(object):
             ## Undelimited datestamps (treated prior to digits)
             (?P<undelimited_stamps>{undelimited_stamps})
             |
+            ## Grab any four digit years
+            (?P<years>{years})
+            |
             ## Grab any digits
             (?P<digits_modifier>{digits_modifier})
             |
@@ -104,6 +110,7 @@ class DateFinder(object):
     DATES_PATTERN = DATES_PATTERN.format(
         time=TIME_PATTERN,
         undelimited_stamps=UNDELIMITED_STAMPS_PATTERN,
+        years=YYYY_PATTERN,
         digits=DIGITS_PATTERN,
         digits_modifier=DIGITS_MODIFIER_PATTERN,
         days=DAYS_PATTERN,
@@ -143,7 +150,7 @@ class DateFinder(object):
     def __init__(self, base_date=None):
         self.base_date = base_date
 
-    def find_dates(self, text, source=False, index=False, strict=False):
+    def find_dates(self, text, source=False, index=False, capture=False, strict=False):
 
         # Append text with a delimiter to make inputs consisting of solely a date work
         text = text + ' '
@@ -161,7 +168,8 @@ class DateFinder(object):
                 returnables = returnables + (date_string,)
             if index:
                 returnables = returnables + (indices,)
-
+            if capture:
+                returnables = returnables + (captures,)
             if len(returnables) == 1:
                 returnables = returnables[0]
             yield returnables
@@ -249,6 +257,7 @@ class DateFinder(object):
             # Get individual group matches
             captures = match.capturesdict()
             # time = captures.get('time')
+            years = captures.get('years')
             digits = captures.get('digits')
             # digits_modifiers = captures.get('digits_modifiers')
             # days = captures.get('days')
@@ -267,7 +276,7 @@ class DateFinder(object):
                 # eg 19 February 2013 year 09:10
                 elif (len(months) == 1) and (len(digits) == 2):
                     complete = True
-                elif all([len(stamp) > 5 for stamp in undelimited_stamps]):
+                elif all([len(stamp) > 5 for stamp in undelimited_stamps]) and len(undelimited_stamps) > 0:
                     complete = True
                 if not complete:
                     continue
@@ -301,6 +310,7 @@ def find_dates(
     text,
     source=False,
     index=False,
+    capture=False,
     strict=False,
     base_date=None
     ):
@@ -330,4 +340,4 @@ def find_dates(
         or a tuple with the source text and index, if requested
     """
     date_finder = DateFinder(base_date=base_date)
-    return date_finder.find_dates(text, source=source, index=index, strict=strict)
+    return date_finder.find_dates(text, source=source, index=index, capture=capture, strict=strict)
