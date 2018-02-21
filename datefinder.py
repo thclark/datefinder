@@ -21,9 +21,10 @@ class DateFinder(object):
     NA_TIMEZONES_PATTERN = 'pacific|eastern|mountain|central'
     ALL_TIMEZONES_PATTERN = TIMEZONES_PATTERN + '|' + NA_TIMEZONES_PATTERN
     DELIMITERS_PATTERN = '[/\:\-\,\s\_\+\@]+'
+
     TIME_PERIOD_PATTERN = 'a\.m\.|am|p\.m\.|pm'
     ## can be in date strings but not recognized by dateutils
-    EXTRA_TOKENS_PATTERN = 'due|by|on|standard|daylight|savings|time|date|of|to|until|z|at|t'
+    EXTRA_TOKENS_PATTERN = '\sdue\s|\sby\s|\son\s|standard|daylight|savings|time|date|\sof\s|\sto\s|until|z|at|t'
 
     # Allows for straightforward datestamps e.g 2017, 201712, 20171223. Created with:
     #  YYYYMM_PATTERN = '|'.join(['19\d\d'+'{:0>2}'.format(mon)+'|20\d\d'+'{:0>2}'.format(mon) for mon in range(1, 13)])
@@ -31,7 +32,8 @@ class DateFinder(object):
     YYYY_PATTERN = '19\d\d|20\d\d'
     YYYYMM_PATTERN = '19\d\d01|20\d\d01|19\d\d02|20\d\d02|19\d\d03|20\d\d03|19\d\d04|20\d\d04|19\d\d05|20\d\d05|19\d\d06|20\d\d06|19\d\d07|20\d\d07|19\d\d08|20\d\d08|19\d\d09|20\d\d09|19\d\d10|20\d\d10|19\d\d11|20\d\d11|19\d\d12|20\d\d12'
     YYYYMMDD_PATTERN = '19\d\d01[0123]\d|20\d\d01[0123]\d|19\d\d02[0123]\d|20\d\d02[0123]\d|19\d\d03[0123]\d|20\d\d03[0123]\d|19\d\d04[0123]\d|20\d\d04[0123]\d|19\d\d05[0123]\d|20\d\d05[0123]\d|19\d\d06[0123]\d|20\d\d06[0123]\d|19\d\d07[0123]\d|20\d\d07[0123]\d|19\d\d08[0123]\d|20\d\d08[0123]\d|19\d\d09[0123]\d|20\d\d09[0123]\d|19\d\d10[0123]\d|20\d\d10[0123]\d|19\d\d11[0123]\d|20\d\d11[0123]\d|19\d\d12[0123]\d|20\d\d12[0123]\d'
-    UNDELIMITED_STAMPS_PATTERN = '|'.join([YYYYMMDD_PATTERN, YYYYMM_PATTERN])
+    YYYYMMDDHHMMSS_PATTERN = '|'.join(['19\d\d' + '{:0>2}'.format(mon) + '[0-3]\d[0-5]\d[0-5]\d[0-5]\d|20\d\d' + '{:0>2}'.format(mon) + '[0-3]\d[0-5]\d[0-5]\d[0-5]\d' for mon in range(1, 13)])
+    UNDELIMITED_STAMPS_PATTERN = '|'.join([YYYYMMDDHHMMSS_PATTERN, YYYYMMDD_PATTERN, YYYYMM_PATTERN])
 
     ## TODO: Get english numbers?
     ## http://www.rexegg.com/regex-trick-numbers-in-english.html
@@ -79,6 +81,9 @@ class DateFinder(object):
             ## Undelimited datestamps (treated prior to digits)
             (?P<undelimited_stamps>{undelimited_stamps})
             |
+            ## Grab any four digit years
+            (?P<years>{years})
+            |
             ## Grab any digits
             (?P<digits_modifier>{digits_modifier})
             |
@@ -104,6 +109,7 @@ class DateFinder(object):
     DATES_PATTERN = DATES_PATTERN.format(
         time=TIME_PATTERN,
         undelimited_stamps=UNDELIMITED_STAMPS_PATTERN,
+        years=YYYY_PATTERN,
         digits=DIGITS_PATTERN,
         digits_modifier=DIGITS_MODIFIER_PATTERN,
         days=DAYS_PATTERN,
@@ -143,22 +149,26 @@ class DateFinder(object):
     def __init__(self, base_date=None):
         self.base_date = base_date
 
-    def find_dates(self, text, source=False, index=False, strict=False, vector=False):
+    def find_dates(self, text, source=False, index=False, capture=False, strict=False):
+
+        # Append text with a delimiter to make inputs consisting of solely a date work
+        text = text + ' '
 
         for date_string, indices, captures in self.extract_date_strings(text, strict=strict):
 
-            as_dt_or_vec = self.parse_date_string(date_string, captures, vector)
-            if as_dt_or_vec is None:
-                ## Dateutil couldn't make heads or tails of it
-                ## move on to next
+            as_dt = self.parse_date_string(date_string, captures)
+            if as_dt is None:
+                # Dateutil couldn't make heads or tails of it
+                # move on to next
                 continue
 
-            returnables = (as_dt_or_vec,)
+            returnables = (as_dt,)
             if source:
                 returnables = returnables + (date_string,)
             if index:
                 returnables = returnables + (indices,)
-
+            if capture:
+                returnables = returnables + (captures,)
             if len(returnables) == 1:
                 returnables = returnables[0]
             yield returnables
@@ -208,7 +218,7 @@ class DateFinder(object):
         tzinfo_match = tz.gettz(tz_string)
         return datetime_obj.replace(tzinfo=tzinfo_match)
 
-    def parse_date_string(self, date_string, captures, vector=False):
+    def parse_date_string(self, date_string, captures):
         # For well formatted string, we can already let dateutils parse them
         # otherwise self._find_and_replace method might corrupt them
         try:
@@ -246,6 +256,7 @@ class DateFinder(object):
             # Get individual group matches
             captures = match.capturesdict()
             # time = captures.get('time')
+            years = captures.get('years')
             digits = captures.get('digits')
             # digits_modifiers = captures.get('digits_modifiers')
             # days = captures.get('days')
@@ -264,7 +275,7 @@ class DateFinder(object):
                 # eg 19 February 2013 year 09:10
                 elif (len(months) == 1) and (len(digits) == 2):
                     complete = True
-                elif all([len(stamp) > 5 for stamp in undelimited_stamps]):
+                elif all([len(stamp) > 5 for stamp in undelimited_stamps]) and len(undelimited_stamps) > 0:
                     complete = True
                 if not complete:
                     continue
@@ -275,12 +286,19 @@ class DateFinder(object):
 
             # Add whitespace delimiters to undelimited stamps
             for stamp in undelimited_stamps:
-                if len(stamp) > 7:
+                if len(stamp) == 8:
                     match_str = re.sub(stamp, stamp[0:4] + ' ' + stamp[4:6] + ' ' + stamp[6:], match_str)
-                elif len(stamp) > 5:
+                elif len(stamp) == 6:
                     match_str = re.sub(stamp, stamp[0:4] + ' ' + stamp[4:6] + ' ', match_str)
 
-            # Strip the output
+            # If the leading or trailing characters are delimiters, bump the indices and strip
+            ind0 = indices[0]
+            ind1 = indices[1]
+            if match_str[0] in self.STRIP_CHARS:
+                ind0 = ind0 + 1
+            if match_str[-1] in self.STRIP_CHARS:
+                ind1 = ind1 - 1
+            indices = (ind0, ind1)
             match_str = match_str.strip(self.STRIP_CHARS)
 
             # Save sanitized source string
@@ -291,8 +309,8 @@ def find_dates(
     text,
     source=False,
     index=False,
+    capture=False,
     strict=False,
-    vector=False,
     base_date=None
     ):
     """
@@ -313,11 +331,6 @@ def find_dates(
         `July 2016` of `Monday` will not return datetimes.
         `May 16, 2015` will return datetimes.
     :type strict: boolean
-    :param vector:
-        Instead of returning datetimes, return lists of [year, month, day, hour, minute, second, millisecond, timezone]
-        with None values present where datefinder was unable to resolve. This allows postprocessing (e.g. guess and fill
-        in) of missing values to be undertaken explicitly
-    :type vector: boolean
     :param base_date:
         Set a default base datetime when parsing incomplete dates
     :type base_date: datetime
@@ -325,7 +338,5 @@ def find_dates(
     :return: Returns a generator that produces :mod:`datetime.datetime` objects,
         or a tuple with the source text and index, if requested
     """
-    if vector:
-        base_date = None
     date_finder = DateFinder(base_date=base_date)
-    return date_finder.find_dates(text, source=source, index=index, strict=strict, vector=vector)
+    return date_finder.find_dates(text, source=source, index=index, capture=capture, strict=strict)
